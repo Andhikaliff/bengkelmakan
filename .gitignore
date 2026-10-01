@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# environment
+.env
+.env.local
+.env.production
+.env.development
+
+# database lokal (SQLite) — jangan ikut ke-commit, ini data asli hotel
+# (folder prisma/migrations/ TETAP di-track lewat Git, itu cuma skema, bukan data)
+prisma/dev.db
+prisma/dev.db-journal
+*.db
+*.db-journal
+
+# vercel
+.vercel/
+
+# logs
+*.log
+
+# downloaded runtime tools (obtain separately; do not commit binaries)
+tools/*.exe
+
+# OS
+.DS_Store
+Thumbs.db

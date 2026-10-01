@@ -1,0 +1,90 @@
+// Skema database lokal (SQLite) untuk Canteen Management System.
+// Tahap 2 dari migrasi: mengganti penyimpanan sementara di memori (Tahap 1)
+// dengan database sungguhan — data sekarang PERMANEN, tersimpan di 1 file
+// lokal (prisma/dev.db by default), tidak hilang lagi saat server di-restart.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  // Di Prisma 7, koneksi database untuk keperluan Migrate/Studio dipindah ke
+  // prisma.config.ts (lihat file itu di root project). Untuk runtime aplikasi
+  // (dipakai lewat PrismaClient), koneksi dilakukan lewat "driver adapter"
+  // yang di-pasang langsung di src/lib/db.ts — bukan lagi otomatis dari sini.
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  role         String   @default("ADMIN") // ADMIN | DATA | SCANNER
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+// Satu tabel untuk SEMUA kategori (Karyawan/Training/Daily Worker), dibedakan
+// lewat kolom `category`. Ini setara dengan 3 tab terpisah (Karyawan/Training/DW)
+// di versi Google Sheets dulu — cukup 1 tabel karena database asli tidak perlu
+// dipisah tab demi tampilan seperti spreadsheet.
+model Employee {
+  id         String   @id // contoh: "EMP001", "TR001", "DW001" — dibuat otomatis, bukan diketik manual
+  nama       String
+  departemen String   @default("")
+  status     String   @default("AKTIF") // "AKTIF" | "NONAKTIF"
+  category   String   // "EMP" | "TR" | "DW"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([category])
+  @@map("employees")
+}
+
+// Satu baris = satu kali scan QR (berhasil, duplikat, direset, nonaktif, atau tidak dikenali).
+// Kolom `bulan` "dibekukan" persis seperti label bulan di Tahap 1 (contoh:
+// "Transaksi Juli 2026"), supaya riwayat lama tidak pernah berubah meskipun
+// logic penentuan "bulan berjalan" di masa depan berubah.
+//
+// Nama tabel fisik sengaja di-map ke "transactions" (bukan "Transaction") karena
+// TRANSACTION adalah reserved keyword di SQL — supaya tidak ada risiko celah.
+model Transaction {
+  id         Int      @id @default(autoincrement())
+  employeeId String   // ID karyawan yang di-scan, misal "EMP001". Sengaja BUKAN foreign key
+                       // supaya baris "TIDAK DIKENAL" (ID yang tidak terdaftar) tetap bisa dicatat.
+  nama       String
+  departemen String   @default("")
+  tanggal    String   // format teks "yyyy-MM-dd", sama persis seperti Tahap 1
+  jam        String   // format teks "HH:mm:ss"
+  status     String   // "BERHASIL" | "DUPLIKAT" | "DIRESET" | "NONAKTIF" | "TIDAK DIKENAL"
+  bulan      String   // label bulan dibekukan saat baris ditulis, misal "Transaksi Juli 2026"
+  scannerId  String?  // ID dari scanner mana transaksi ini berasal
+  createdAt  DateTime @default(now())
+
+  @@index([employeeId, tanggal, status])
+  @@index([bulan])
+  @@index([departemen])
+  @@index([scannerId])
+  @@map("transactions")
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  timestamp   DateTime @default(now())
+  username    String
+  role        String
+  action      String
+  targetId    String?
+  description String
+  status      String   @default("SUCCESS")
+  metadata    String?
+  ipAddress   String?
+  scannerId   String?
+
+  @@index([timestamp])
+  @@index([username])
+  @@index([action])
+  @@map("audit_logs")
+}
