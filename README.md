@@ -43,10 +43,60 @@ Terdapat 3 tingkatan peran (Role):
 
 > Website berjalan dengan Node.js, Next.js production, dan SQLite. Database berada pada file yang ditentukan `DATABASE_URL` (default `prisma/dev.db`). Jangan commit `.env.local`, file database, backup, log, atau binary tool.
 
+### Aplikasi yang dibutuhkan
+
+- **Wajib di PC pengembang**: [Git for Windows](https://git-scm.com/download/win), [Node.js 22 LTS](https://nodejs.org/en/download) (npm sudah termasuk), dan PowerShell. VS Code opsional.
+- **Wajib di PC server**: Windows 10/11 atau Windows Server yang didukung, Git for Windows, Node.js 22 LTS (npm sudah termasuk), dan PowerShell. Akun administrator diperlukan untuk memasang Windows Service dan Scheduled Task.
+- **Wajib untuk auto-start**: NSSM (`nssm.exe`).
+- **Opsional**: Caddy (`caddy.exe`) jika tablet/perangkat lain perlu mengakses aplikasi melalui port 80; browser pada komputer admin dan tablet.
+- **Opsional**: SMTP untuk laporan email. Prisma Studio sudah termasuk dependency project; tidak perlu memasang aplikasi database terpisah.
+
+Verifikasi Git dan Node.js dari PowerShell:
+
+```powershell
+git --version
+node --version
+npm --version
+```
+
+Gunakan Node.js 22 LTS pada komputer pengembang dan server agar paket native SQLite dan Next.js memakai runtime yang didukung.
+
+### Push kode ke GitHub pertama kali
+
+Langkah ini dilakukan pada komputer pengembang sebelum clone di server.
+
+1. Buat repository baru di GitHub. Repository private disarankan untuk aplikasi internal. Buat repository kosong tanpa README, `.gitignore`, atau license tambahan.
+2. Dari PowerShell di root folder project, inisialisasi Git dan periksa file rahasia yang diabaikan:
+
+   ```powershell
+   git init -b main
+   git check-ignore -v .env.local prisma/dev.db tools/nssm.exe tools/caddy.exe
+   git add .
+   git status --short
+   ```
+
+   Pastikan `.env.local`, database, log, backup, dan file `.exe` tidak muncul sebagai file staged. `.env.local.example` boleh di-commit hanya jika isinya placeholder, bukan kredensial aktif.
+
+3. Commit dan hubungkan ke repository GitHub:
+
+   ```powershell
+   git commit -m "Initial project setup"
+   git remote add origin https://github.com/USERNAME/NAMA-REPOSITORY.git
+   git push -u origin main
+   ```
+
+   Ganti URL dengan URL repository Anda. Jangan masukkan token/password ke URL atau file proyek. Bila kredensial pernah diunggah sebelumnya, revoke/ganti kredensial itu; menghapusnya dari versi terbaru tidak menghapusnya dari riwayat commit.
+
+   Jika Git meminta nama/email commit, atur identitas Git (gunakan email yang sesuai akun GitHub):
+
+   ```powershell
+   git config --global user.name "Nama Anda"
+   git config --global user.email "email-anda@example.com"
+   ```
+
 ### Clone dan siapkan
 
-1. Pasang Git dan Node.js LTS (Node 18 atau lebih baru) pada server.
-2. Clone repository ke folder aplikasi. Contoh:
+1. Masuk ke Windows Server menggunakan akun administrator, buka PowerShell, lalu clone repository. Ganti URL GitHub dengan milik Anda:
 
    ```powershell
    Set-Location C:\
@@ -56,8 +106,14 @@ Terdapat 3 tingkatan peran (Role):
 
    Semua script menghitung folder project dari lokasinya, jadi repo juga dapat berada di folder lain.
 
-3. Buat folder `tools` di root project. Unduh NSSM dari `https://nssm.cc/download` dan letakkan `nssm.exe` langsung di `tools\nssm.exe`. Bila menggunakan Caddy, unduh `caddy.exe` dari `https://caddyserver.com/download` ke `tools\caddy.exe`. Binary sengaja tidak disimpan di GitHub; `.gitignore` mencegahnya ikut ter-commit. Jika Node.js tidak tersedia di PATH, letakkan `node.exe` di `tools\node.exe`.
-4. Buat konfigurasi rahasia lokal, lalu isi akun dan hash password sesuai bagian berikut:
+2. Buat folder tools dari root project:
+
+   ```powershell
+   New-Item -ItemType Directory -Force .\tools
+   ```
+
+   Unduh NSSM dari `https://nssm.cc/download`, ekstrak arsip, lalu salin `win64\nssm.exe` (atau `win32\nssm.exe` untuk Windows 32-bit) ke `tools\nssm.exe`. Jika memakai Caddy, unduh binary Windows dari `https://caddyserver.com/download` dan letakkan di `tools\caddy.exe`. Binary sengaja tidak disimpan di GitHub. Jika Node.js tidak tersedia di PATH, letakkan `node.exe` di `tools\node.exe`.
+3. Buat konfigurasi rahasia lokal, lalu isi akun dan hash password sesuai bagian berikut:
 
    ```powershell
    Copy-Item .env.local.example .env.local
@@ -66,7 +122,7 @@ Terdapat 3 tingkatan peran (Role):
 
    Default database adalah `file:./prisma/dev.db`. `BACKUP_DIR=../Backups` membuat folder backup di sebelah folder project, bukan di dalam repository.
 
-5. Dari PowerShell pada root project, pasang dependency, buat client Prisma, terapkan migrasi, dan build:
+4. Dari PowerShell pada root project, pasang dependency, buat client Prisma, terapkan migrasi, dan build:
 
    ```powershell
    npm ci
@@ -76,6 +132,8 @@ Terdapat 3 tingkatan peran (Role):
    ```
 
    `migrate deploy` membuat tabel dari migrasi yang ada; jangan gunakan `db push` untuk setup server produksi.
+
+5. Uji aplikasi sebelum mendaftarkannya sebagai service. Jalankan `npm run start -- -H 127.0.0.1` di PowerShell, buka `http://localhost:3000/admin/login`, lalu hentikan server dengan `Ctrl+C`.
 
 ### Hash password yang benar
 
@@ -91,7 +149,7 @@ Setelah mengubah hash atau variabel runtime, restart service Next.js agar peruba
 
 ### Pasang auto-start service
 
-Script menggunakan `tools\nssm.exe`, `tools\caddy.exe`, dan `Caddyfile` di root project. `Caddyfile` bawaan memakai port 80 untuk reverse proxy lokal; Caddy opsional, dan port/firewall/domain perlu disesuaikan dengan jaringan server.
+Script menggunakan `tools\nssm.exe`, `tools\caddy.exe`, dan `Caddyfile` di root project. `Caddyfile` bawaan menerima HTTP pada port 80 dan meneruskan request ke Next.js pada `127.0.0.1:3000`. Next.js sendiri tidak dibuka langsung ke jaringan. Caddy opsional jika aplikasi hanya diakses di server; untuk akses tablet di LAN, pasang Caddy lalu izinkan inbound TCP port 80 pada Windows Firewall hanya untuk jaringan lokal. Konfigurasi bawaan ini HTTP, bukan HTTPS publik.
 
 Buka PowerShell **Run as Administrator**, lalu jalankan:
 
@@ -110,6 +168,14 @@ Get-Content .\logs\nextjs-stderr.log -Tail 50
 Get-Content .\logs\caddy-stderr.log -Tail 50
 ```
 
+Jika menggunakan Caddy, izinkan port 80 hanya dari subnet lokal lewat PowerShell **Run as Administrator**:
+
+```powershell
+New-NetFirewallRule -DisplayName "Bengkel Makan HTTP LAN" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 80 -RemoteAddress LocalSubnet
+```
+
+Buka dari perangkat LAN melalui `http://ALAMAT-IP-SERVER/admin/login` (contoh `http://192.168.1.10/admin/login`). Pastikan komputer server dan tablet berada di jaringan yang sama. Jangan buka port 3000, SQLite, atau SMTP inbound ke internet. Untuk domain/HTTPS publik, siapkan DNS, sertifikat, dan aturan firewall/reverse proxy secara khusus.
+
 Jika memakai backup otomatis, daftarkan juga task (Administrator):
 
 ```powershell
@@ -119,6 +185,24 @@ Jika memakai backup otomatis, daftarkan juga task (Administrator):
 Task backup berjalan tiap 6 jam sebagai `SYSTEM`. Task laporan email dipasang terpisah melalui `scripts\setup-email-report-schedule.ps1`; konfigurasi SMTP dijelaskan di bagian laporan email.
 
 Untuk melepas service, jalankan `scripts\uninstall-services.ps1` sebagai Administrator. Ini tidak menghapus database, backup, atau log.
+
+### Memperbarui aplikasi setelah ada perubahan di GitHub
+
+Backup database terlebih dahulu. Dari PowerShell Administrator pada server:
+
+```powershell
+Set-Location "C:\Bengkel Makan\Main"
+node .\scripts\backup.js
+Stop-Service BengkelMakan
+git pull --ff-only
+npm ci
+npx prisma generate
+npx prisma migrate deploy
+npm run build
+Start-Service BengkelMakan
+```
+
+Jika build gagal, periksa error dan jangan menganggap update berhasil. File `.env.local`, database, log, backup, dan binary dalam `tools` tidak berubah oleh `git pull` selama tidak pernah di-track.
 
 ## 2. Backup, Lihat, Ambil Laporan, dan Restore
 
