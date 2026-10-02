@@ -17,6 +17,28 @@ const STATUS_COLORS: Record<string, { bg: string; font: string }> = {
   "TIDAK DIKENAL": { bg: "FFF3F4F6", font: "FF374151" },
 };
 
+// Hitung ringkasan per-status dari sekumpulan transaksi. Dipakai untuk blok
+// "Rekap Total" di paling bawah laporan.
+export function summarizeTransactions(transactions: Transaction[]) {
+  const counts = {
+    total: transactions.length,
+    BERHASIL: 0,
+    DUPLIKAT: 0,
+    DIRESET: 0,
+    NONAKTIF: 0,
+    "TIDAK DIKENAL": 0,
+  };
+  for (const t of transactions) {
+    const s = String(t.status || "").toUpperCase();
+    if (s === "BERHASIL") counts.BERHASIL += 1;
+    else if (s === "DUPLIKAT") counts.DUPLIKAT += 1;
+    else if (s === "DIRESET") counts.DIRESET += 1;
+    else if (s === "NONAKTIF") counts.NONAKTIF += 1;
+    else if (s === "TIDAK DIKENAL" || s === "TIDAK_DIKENAL") counts["TIDAK DIKENAL"] += 1;
+  }
+  return counts;
+}
+
 export async function buildTransactionsWorkbook(
   transactions: Transaction[],
   meta: { monthLabel: string; deptLabel: string }
@@ -69,6 +91,32 @@ export async function buildTransactionsWorkbook(
       });
     }
   });
+
+  // ── Rekap Total (diletakkan paling bawah laporan) ─────────────────────
+  const counts = summarizeTransactions(transactions);
+
+  sheet.addRow([]);
+  const recapTitleRow = sheet.addRow(["REKAP TOTAL"]);
+  sheet.mergeCells(`A${recapTitleRow.number}:F${recapTitleRow.number}`);
+  const recapTitleCell = recapTitleRow.getCell(1);
+  recapTitleCell.font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
+  recapTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF111827" } };
+
+  const recapRows: [string, number][] = [
+    ["Total Transaksi", counts.total],
+    ["Berhasil", counts.BERHASIL],
+    ["Duplikat", counts.DUPLIKAT],
+    ["Direset", counts.DIRESET],
+    ["Nonaktif", counts.NONAKTIF],
+    ["Tidak Dikenal", counts["TIDAK DIKENAL"]],
+  ];
+  for (const [label, value] of recapRows) {
+    const r = sheet.addRow([label, "", "", "", "", value]);
+    sheet.mergeCells(`A${r.number}:E${r.number}`);
+    r.getCell(1).font = { bold: label === "Total Transaksi" };
+    r.getCell(6).font = { bold: true };
+    r.getCell(6).alignment = { horizontal: "center" };
+  }
 
   return workbook.xlsx.writeBuffer();
 }
