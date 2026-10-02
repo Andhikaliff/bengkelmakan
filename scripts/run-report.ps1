@@ -1,4 +1,10 @@
-﻿$ErrorActionPreference = "Stop"
+param(
+    [int]$StartHour = -1,
+    [int]$StartMinute = -1,
+    [int]$WindowHours = -1
+)
+
+$ErrorActionPreference = "Stop"
 
 $projectDir = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $projectDir ".env.local"
@@ -26,7 +32,16 @@ try {
     }
 
     $encodedSecret = [Uri]::EscapeDataString($cronSecret)
-    $url = "http://localhost:3000/api/cron/send-report?type=daily&key=$encodedSecret"
+
+    # Parameter jendela waktu (opsional) dilempar sebagai query string supaya
+    # cukup diatur di setup-email-report-schedule.ps1, tidak perlu .env.local.
+    # Kalau tidak dikirim (-1), endpoint pakai default-nya sendiri.
+    $query = "type=daily&key=$encodedSecret"
+    if ($StartHour -ge 0)   { $query += "&startHour=$StartHour" }
+    if ($StartMinute -ge 0) { $query += "&startMinute=$StartMinute" }
+    if ($WindowHours -ge 0) { $query += "&windowHours=$WindowHours" }
+
+    $url = "http://localhost:3000/api/cron/send-report?$query"
     $response = Invoke-WebRequest -Uri $url -Method GET -UseBasicParsing -TimeoutSec 120
     Write-ReportLog "SUCCESS: daily report sent; HTTP $($response.StatusCode)."
 } catch {
