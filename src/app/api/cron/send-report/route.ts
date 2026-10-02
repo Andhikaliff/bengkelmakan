@@ -79,12 +79,17 @@ export async function GET(req: NextRequest) {
     }
 
     // ── Konfigurasi jendela waktu laporan ────────────────────────────────
-    // startHour  : jam "cut-off" harian (WITA) tempat jendela dimulai/berakhir.
-    // windowHours: berapa jam jendela membentang ke belakang dari batas cut-off.
-    // Diatur lewat .env.local (REPORT_START_HOUR / REPORT_WINDOW_HOURS) dan bisa
-    // di-override via query string (?startHour=7&windowHours=24) untuk tes cepat.
+    // startHour / startMinute : jam:menit "cut-off" harian (WITA) tempat jendela
+    //                           dimulai/berakhir. Menit default 0 (opsional).
+    // windowHours             : berapa jam jendela membentang ke belakang dari
+    //                           batas cut-off.
+    // Diatur lewat .env.local (REPORT_START_HOUR / REPORT_START_MINUTE /
+    // REPORT_WINDOW_HOURS) dan bisa di-override via query string
+    // (?startHour=15&startMinute=30&windowHours=24) untuk tes cepat.
     const startHour = clampInt(
       searchParams.get("startHour") ?? process.env.REPORT_START_HOUR, 7, 0, 23);
+    const startMinute = clampInt(
+      searchParams.get("startMinute") ?? process.env.REPORT_START_MINUTE, 0, 0, 59);
     const windowHours = clampInt(
       searchParams.get("windowHours") ?? process.env.REPORT_WINDOW_HOURS, 24, 1, 24 * 31);
 
@@ -95,10 +100,11 @@ export async function GET(req: NextRequest) {
       timeZone: TIMEZONE, dateStyle: "full", timeStyle: "short", hourCycle: "h23",
     });
 
-    // Batas akhir jendela = batas startHour terbaru yang SUDAH terjadi (<= now).
-    // Jadi cron yang jalannya molor sedikit (mis. 07:12) tetap memakai jendela
-    // yang sama: [kemarin 07:00, hari ini 07:00).
-    let endMs = new Date(`${nowP.ymd}T${pad2(startHour)}:00:00${WITA_OFFSET}`).getTime();
+    // Batas akhir jendela = batas cut-off (jam:menit) terbaru yang SUDAH terjadi
+    // (<= now). Jadi cron yang jalannya molor sedikit tetap memakai jendela yang
+    // sama, mis. [kemarin 15:30, hari ini 15:30) untuk cut-off 15:30.
+    let endMs = new Date(
+      `${nowP.ymd}T${pad2(startHour)}:${pad2(startMinute)}:00${WITA_OFFSET}`).getTime();
     if (endMs > now.getTime()) endMs -= 24 * HOUR_MS;
     const end = new Date(endMs);
     const start = new Date(endMs - windowHours * HOUR_MS);
@@ -150,7 +156,7 @@ export async function GET(req: NextRequest) {
     const htmlBody = `
       <h2>Laporan Transaksi Bengkel Makan</h2>
       <p>Berikut adalah laporan otomatis untuk periode: <strong>${periodLabel}</strong></p>
-      ${type === "daily" ? `<p><small>Jendela waktu: ${windowHours} jam, cut-off harian pukul ${pad2(startHour)}:00 WITA.</small></p>` : ""}
+      ${type === "daily" ? `<p><small>Jendela waktu: ${windowHours} jam, cut-off harian pukul ${pad2(startHour)}:${pad2(startMinute)} WITA.</small></p>` : ""}
 
       <h3>Ringkasan Transaksi:</h3>
       <ul>
@@ -186,14 +192,14 @@ export async function GET(req: NextRequest) {
       action: "EXPORT_DATA",
       description: `Mengirim email laporan ${type} ke ${recipients}`,
       status: "SUCCESS",
-      metadata: { type, recipients, messageId: info.messageId, startHour, windowHours }
+      metadata: { type, recipients, messageId: info.messageId, startHour, startMinute, windowHours }
     });
 
     return NextResponse.json({
       status: "success",
       message: `Email sent to ${recipients}`,
       messageId: info.messageId,
-      period: { start: start.toISOString(), end: end.toISOString(), windowHours, startHour },
+      period: { start: start.toISOString(), end: end.toISOString(), windowHours, startHour, startMinute },
       total: filteredTransactions.length,
     });
   } catch (err: any) {
