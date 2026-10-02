@@ -53,15 +53,6 @@ function sortSheetNames(names: string[]) {
   });
 }
 
-// Label status -> teks singkat untuk rekap/PDF.
-const STATUS_LABELS: Record<string, string> = {
-  BERHASIL: "Berhasil",
-  DUPLIKAT: "Duplikat",
-  DIRESET: "Reset",
-  NONAKTIF: "Nonaktif",
-  "TIDAK DIKENAL": "Tidak Dikenal",
-};
-
 export default function DashboardPage() {
   const router = useRouter();
   const role = useCurrentRole();
