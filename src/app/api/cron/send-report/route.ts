@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
         const ms = transactionTimeMs(t);
         return ms >= sMs && ms < eMs; // [start, end): start inklusif, end eksklusif
       });
-      periodLabel = `Harian (${fullFmt.format(start)} - ${fullFmt.format(end)} WITA)`;
+      periodLabel = `Harian ${windowHours} jam (${fullFmt.format(start)} - ${fullFmt.format(end)} WITA)`;
     } else {
       // Mingguan/bulanan: tetap pakai perilaku lama (berdasarkan tanggal kalender).
       const month = BULAN_INDO[nowP.m - 1];
@@ -177,7 +177,7 @@ export async function GET(req: NextRequest) {
         <li><strong>Total Transaksi:</strong> ${filteredTransactions.length}</li>
       </ul>
 
-      <p>Rincian lengkap dapat dilihat pada file Excel terlampir.</p>
+      <p>Rincian lengkap (termasuk rekap per-status) ada di file Excel terlampir.</p>
 
       <br>
       <p><small>Laporan ini di-generate secara otomatis oleh Bengkel Makan Management System.</small></p>
