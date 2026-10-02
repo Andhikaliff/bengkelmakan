@@ -79,17 +79,14 @@ export async function GET(req: NextRequest) {
     }
 
     // ── Konfigurasi jendela waktu laporan ────────────────────────────────
-    // startHour / startMinute : jam:menit "cut-off" harian (WITA) tempat jendela
-    //                           dimulai/berakhir. Menit default 0 (opsional).
-    // windowHours             : berapa jam jendela membentang ke belakang dari
-    //                           batas cut-off.
-    // Diatur lewat .env.local (REPORT_START_HOUR / REPORT_START_MINUTE /
-    // REPORT_WINDOW_HOURS) dan bisa di-override via query string
-    // (?startHour=15&startMinute=30&windowHours=24) untuk tes cepat.
-    const startHour = clampInt(
-      searchParams.get("startHour") ?? process.env.REPORT_START_HOUR, 7, 0, 23);
-    const startMinute = clampInt(
-      searchParams.get("startMinute") ?? process.env.REPORT_START_MINUTE, 0, 0, 59);
+    // windowHours (a.k.a. "StartReport"): berapa JAM ke belakang laporan diambil.
+    //   Default = mundur dari WAKTU REPORT DIKIRIM. Contoh: dikirim 07:00 +
+    //   windowHours=24 => transaksi kemarin 07:00 sampai hari ini 07:00.
+    // Diatur lewat query string (?windowHours=24) — yang dikirim run-report.ps1 —
+    // atau REPORT_WINDOW_HOURS di .env.local. Default 24.
+    //
+    // MODE CUT-OFF (opsional): jika startHour dikirim (query/env), akhir jendela
+    // dibulatkan ke jam:menit cut-off tetap, bukan waktu kirim. Jarang perlu.
     const windowHours = clampInt(
       searchParams.get("windowHours") ?? process.env.REPORT_WINDOW_HOURS, 24, 1, 24 * 31);
 
@@ -100,14 +97,29 @@ export async function GET(req: NextRequest) {
       timeZone: TIMEZONE, dateStyle: "full", timeStyle: "short", hourCycle: "h23",
     });
 
-    // Batas akhir jendela = batas cut-off (jam:menit) terbaru yang SUDAH terjadi
-    // (<= now). Jadi cron yang jalannya molor sedikit tetap memakai jendela yang
-    // sama, mis. [kemarin 15:30, hari ini 15:30) untuk cut-off 15:30.
-    let endMs = new Date(
-      `${nowP.ymd}T${pad2(startHour)}:${pad2(startMinute)}:00${WITA_OFFSET}`).getTime();
-    if (endMs > now.getTime()) endMs -= 24 * HOUR_MS;
-    const end = new Date(endMs);
-    const start = new Date(endMs - windowHours * HOUR_MS);
+    const anchorRaw = String(
+      searchParams.get("startHour") ?? process.env.REPORT_START_HOUR ?? "").trim();
+    const useAnchor = anchorRaw !== "";
+
+    let end: Date;
+    let start: Date;
+    let cutoffNote: string;
+
+    if (useAnchor) {
+      const startHour = clampInt(anchorRaw, 7, 0, 23);
+      const startMinute = clampInt(
+        searchParams.get("startMinute") ?? process.env.REPORT_START_MINUTE, 0, 0, 59);
+      let endMs = new Date(
+        `${nowP.ymd}T${pad2(startHour)}:${pad2(startMinute)}:00${WITA_OFFSET}`).getTime();
+      if (endMs > now.getTime()) endMs -= 24 * HOUR_MS;
+      end = new Date(endMs);
+      start = new Date(endMs - windowHours * HOUR_MS);
+      cutoffNote = `cut-off ${pad2(startHour)}:${pad2(startMinute)} WITA`;
+    } else {
+      end = now;
+      start = new Date(now.getTime() - windowHours * HOUR_MS);
+      cutoffNote = `${windowHours} jam terakhir sampai waktu pengiriman`;
+    }
 
     let filteredTransactions: Transaction[];
     let periodLabel: string;
@@ -156,7 +168,7 @@ export async function GET(req: NextRequest) {
     const htmlBody = `
       <h2>Laporan Transaksi Bengkel Makan</h2>
       <p>Berikut adalah laporan otomatis untuk periode: <strong>${periodLabel}</strong></p>
-      ${type === "daily" ? `<p><small>Jendela waktu: ${windowHours} jam, cut-off harian pukul ${pad2(startHour)}:${pad2(startMinute)} WITA.</small></p>` : ""}
+      ${type === "daily" ? `<p><small>Jendela waktu: ${cutoffNote}.</small></p>` : ""}
 
       <h3>Ringkasan Transaksi:</h3>
       <ul>
@@ -192,14 +204,14 @@ export async function GET(req: NextRequest) {
       action: "EXPORT_DATA",
       description: `Mengirim email laporan ${type} ke ${recipients}`,
       status: "SUCCESS",
-      metadata: { type, recipients, messageId: info.messageId, startHour, startMinute, windowHours }
+      metadata: { type, recipients, messageId: info.messageId, windowHours, mode: useAnchor ? "cutoff" : "lastNhours" }
     });
 
     return NextResponse.json({
       status: "success",
       message: `Email sent to ${recipients}`,
       messageId: info.messageId,
-      period: { start: start.toISOString(), end: end.toISOString(), windowHours, startHour, startMinute },
+      period: { start: start.toISOString(), end: end.toISOString(), windowHours, mode: useAnchor ? "cutoff" : "lastNhours" },
       total: filteredTransactions.length,
     });
   } catch (err: any) {
