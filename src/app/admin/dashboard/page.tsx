@@ -53,6 +53,15 @@ function sortSheetNames(names: string[]) {
   });
 }
 
+// Label status -> teks singkat untuk rekap/PDF.
+const STATUS_LABELS: Record<string, string> = {
+  BERHASIL: "Berhasil",
+  DUPLIKAT: "Duplikat",
+  DIRESET: "Reset",
+  NONAKTIF: "Nonaktif",
+  "TIDAK DIKENAL": "Tidak Dikenal",
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const role = useCurrentRole();
@@ -159,6 +168,38 @@ export default function DashboardPage() {
     if (!q) return dateFiltered;
     return dateFiltered.filter((t) => t.nama.toLowerCase().includes(q) || String(t.id).toLowerCase().includes(q));
   }, [transactions, search, selectedDate, selectedDept, selectedPos]);
+
+  // Rekap total per-status dari data yang SEDANG tampil (filtered), sehingga
+  // angkanya ikut filter tahun/bulan/tanggal/departemen/jabatan/pencarian.
+  const summary = useMemo(() => {
+    const c: Record<string, number> = {
+      total: filtered.length, BERHASIL: 0, DUPLIKAT: 0, DIRESET: 0, NONAKTIF: 0, "TIDAK DIKENAL": 0,
+    };
+    for (const t of filtered) {
+      const s = String(t.status || "").toUpperCase();
+      if (s === "BERHASIL") c.BERHASIL += 1;
+      else if (s === "DUPLIKAT") c.DUPLIKAT += 1;
+      else if (s === "DIRESET") c.DIRESET += 1;
+      else if (s === "NONAKTIF") c.NONAKTIF += 1;
+      else if (s === "TIDAK DIKENAL" || s === "TIDAK_DIKENAL") c["TIDAK DIKENAL"] += 1;
+    }
+    return c;
+  }, [filtered]);
+
+  // Ringkasan "waktu yang dipilih" untuk caption Rekap & judul PDF.
+  const periodCaption = (() => {
+    let scope = "Semua Waktu";
+    if (selectedYear && selectedMonth && selectedDate) scope = `${selectedDate} ${selectedMonth} ${selectedYear}`;
+    else if (selectedYear && selectedMonth) scope = `${selectedMonth} ${selectedYear}`;
+    else if (selectedDate) scope = selectedDate;
+    else if (selectedYear) scope = `Tahun ${selectedYear}`;
+    else if (selectedMonth) scope = selectedMonth;
+    const extra: string[] = [];
+    if (selectedDept) extra.push(selectedDept);
+    if (selectedPos) extra.push(CATEGORY_LABELS[selectedPos as Category] || selectedPos);
+    if (search.trim()) extra.push(`cari "${search.trim()}"`);
+    return extra.length ? `${scope} — ${extra.join(", ")}` : scope;
+  })();
 
   useEffect(() => {
     fetch("/api/months", { cache: "no-store" })
@@ -271,7 +312,7 @@ export default function DashboardPage() {
       const monthLabel = selectedMonth || "Semua Bulan";
       const yearLabel = selectedYear || "Semua Tahun";
       const deptLabel = selectedDept || "Semua Departemen";
-      const title = `Laporan Transaksi Bengkel Makan — ${monthLabel} ${yearLabel} — ${deptLabel}`;
+      const title = `Laporan Transaksi Bengkel Makan — ${monthLabel} ${yearLabel}${selectedDate ? " — " + selectedDate : ""} — ${deptLabel}`;
 
       doc.setFontSize(14);
       doc.text(title, 14, 15);
@@ -296,6 +337,23 @@ export default function DashboardPage() {
         alternateRowStyles: { fillColor: [245, 246, 248] },
       });
 
+      // Rekap Total di paling bawah (bisa pindah ke halaman baru jika penuh).
+      autoTable(doc, {
+        startY: ((doc as any).lastAutoTable?.finalY ?? 26) + 8,
+        head: [["REKAP TOTAL", "Jumlah"]],
+        body: [
+          ["Total Transaksi", String(summary.total)],
+          ["Berhasil", String(summary.BERHASIL)],
+          ["Duplikat", String(summary.DUPLIKAT)],
+          ["Reset", String(summary.DIRESET)],
+          ["Nonaktif", String(summary.NONAKTIF)],
+          ["Tidak Dikenal", String(summary["TIDAK DIKENAL"])],
+        ],
+        headStyles: { fillColor: [17, 24, 39] },
+        styles: { fontSize: 9 },
+        columnStyles: { 1: { halign: "center", fontStyle: "bold" } },
+      });
+
       const filenameParts = ["laporan-bengkel-makan", monthLabel, deptLabel].map((s) =>
         s.toLowerCase().replace(/\s+/g, "-")
       );
@@ -312,6 +370,11 @@ export default function DashboardPage() {
       if (selectedMonth) params.set("month", selectedMonth);
       if (selectedYear) params.set("year", selectedYear);
       if (selectedDept) params.set("departemen", selectedDept);
+      // Kirim juga filter yang hanya aktif di layar supaya Excel = tampilan.
+      if (selectedDate) params.set("tanggal", selectedDate);
+      if (selectedPos) params.set("kategori", selectedPos);
+      const q = search.trim();
+      if (q) params.set("q", q);
 
       const res = await fetch(`/api/export/excel?${params.toString()}`);
       if (!res.ok) throw new Error("Gagal membuat file Excel");
@@ -639,6 +702,29 @@ export default function DashboardPage() {
                 disabled={currentPage === totalPages}
                 className="w-7 h-7 rounded border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed text-sm"
               >›</button>
+            </div>
+          </div>
+
+          {/* Rekap Total — paling bawah, mengikuti waktu/filter yang dipilih */}
+          <div className="px-4 md:px-6 py-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Rekap Total</h3>
+              <p className="text-xs text-gray-500">{periodCaption}</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { label: "Total Transaksi", value: summary.total, cls: "text-gray-900 dark:text-white" },
+                { label: "Berhasil", value: summary.BERHASIL, cls: "text-green-600 dark:text-green-400" },
+                { label: "Duplikat", value: summary.DUPLIKAT, cls: "text-orange-600 dark:text-orange-400" },
+                { label: "Reset", value: summary.DIRESET, cls: "text-yellow-600 dark:text-yellow-400" },
+                { label: "Nonaktif", value: summary.NONAKTIF, cls: "text-red-600 dark:text-red-400" },
+                { label: "Tidak Dikenal", value: summary["TIDAK DIKENAL"], cls: "text-gray-500 dark:text-gray-400" },
+              ].map((s) => (
+                <div key={s.label} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{s.label}</p>
+                  <p className={`text-2xl font-bold mt-1 ${s.cls}`}>{txLoading ? "—" : s.value}</p>
+                </div>
+              ))}
             </div>
           </div>
         </div>
